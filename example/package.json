@@ -1,0 +1,10 @@
+{
+  "name": "react-native-ota-example",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Example RN app for react-native-ota (reserved — implemented in MS9)",
+  "scripts": {
+    "typecheck": "echo \"example app reserved for MS9 — skipping typecheck\"",
+    "build": "echo \"example app reserved for MS9 — skipping build\""
+  }
+}

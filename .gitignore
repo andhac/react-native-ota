@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Builds
+dist/
+build/
+*.tsbuildinfo
+
+# Coverage / caches
+coverage/
+.turbo/
+.cache/
+*.log
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.p8
+*_private_key*
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Native
+**/android/.gradle/
+**/android/local.properties
+**/ios/Pods/
+**/ios/build/
+*.xcworkspace
+!default.xcworkspace
+
+# Changesets
+.changeset/*.md
+!.changeset/README.md
+!.changeset/config.json
+
+# Misc
+*.tgz
+.npmrc.local
+.rn-src/
+.cursor/

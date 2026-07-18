@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "react-native-ota": ["packages/client/src/index.ts"],
+      "@rnota/protocol": ["packages/protocol/src/index.ts"],
+      "@rnota/crypto": ["packages/crypto/src/index.ts"],
+      "@rnota/cli": ["packages/cli/src/index.ts"],
+      "@rnota/server": ["packages/server/src/index.ts"]
+    }
+  }
+}

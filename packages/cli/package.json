@@ -1,0 +1,36 @@
+{
+  "name": "@rnota/cli",
+  "version": "0.0.0",
+  "description": "CLI for bundling, signing, and publishing React Native OTA updates",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "ota": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty",
+    "clean": "tsc -b --clean",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@rnota/crypto": "0.0.0",
+    "@rnota/protocol": "0.0.0",
+    "commander": "^14.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

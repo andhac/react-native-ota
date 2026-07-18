@@ -1,0 +1,31 @@
+{
+  "name": "@rnota/crypto",
+  "version": "0.0.0",
+  "description": "OTA signing and key management (CLI-side Ed25519 / canonical JSON)",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty",
+    "clean": "tsc -b --clean",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@rnota/protocol": "0.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

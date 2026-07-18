@@ -1,0 +1,41 @@
+{
+  "name": "react-native-ota-monorepo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Production-grade React Native OTA update library (monorepo)",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "npm@10.9.2",
+  "workspaces": [
+    "packages/*",
+    "example"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run --passWithNoTests",
+    "clean": "tsc -b --clean",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "ci": "npm run typecheck && npm run lint && npm run build"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.29.5",
+    "@eslint/js": "^9.31.0",
+    "@types/node": "^22.16.5",
+    "eslint": "^9.31.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.3.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.38.0",
+    "vitest": "^3.2.4"
+  }
+}

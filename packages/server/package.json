@@ -1,0 +1,37 @@
+{
+  "name": "@rnota/server",
+  "version": "0.0.0",
+  "description": "Self-hostable reference OTA server (release, storage, analytics)",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "migrations"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty",
+    "clean": "tsc -b --clean",
+    "start": "node dist/index.js",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@rnota/protocol": "0.0.0",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
