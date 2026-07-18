@@ -106,6 +106,7 @@ public enum OtaStateCodec {
     }
 
     if input[start] == "\"" {
+      let end = try findStringEnd(input, from: input.index(after: start))
       let value = unescape(String(input[input.index(after: start)..<end]))
       return (value, input.index(after: end))
     }
