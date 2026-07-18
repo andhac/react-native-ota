@@ -1,0 +1,11 @@
+dist
+build
+coverage
+node_modules
+.rn-src
+pnpm-lock.yaml
+package-lock.json
+*.podspec
+android/**/build
+ios/Pods
+CHANGELOG.md

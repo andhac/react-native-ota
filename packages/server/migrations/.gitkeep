@@ -1,0 +1,2 @@
+-- Postgres migrations land in MS7 (see docs/ARCHITECTURE.md §8).
+-- MS0: directory reserved only.
