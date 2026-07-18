@@ -89,7 +89,6 @@ public final class BootWatchdog: @unchecked Sendable {
   @discardableResult
   public func reset() throws -> BootResult {
     try withLock {
-      let next = BootState.empty
       let normalized = BootState(
         schemaVersion: config.supportedSchemaVersion,
         bootAttempt: 0,

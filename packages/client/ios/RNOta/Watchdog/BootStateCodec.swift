@@ -23,12 +23,23 @@ enum BootStateCodec {
     if schemaVersion > supportedSchemaVersion { return nil }
     return BootState(
       schemaVersion: max(schemaVersion, 1),
-      bootAttempt: max(Int(root["bootAttempt"] ?? "0") ?? 0, 0),
-      lastSuccessfulBoot: max(Int(root["lastSuccessfulBoot"] ?? "0") ?? 0, 0),
-      status: BootStatus(rawValue: root["status"] ?? "idle") ?? .idle,
-      consecutiveFailures: max(Int(root["consecutiveFailures"] ?? "0") ?? 0, 0),
-      lastFailureReason: BootFailureReason(rawValue: root["lastFailureReason"] ?? "none") ?? .none
+      bootAttempt: max(Int(stringValue(root, "bootAttempt", default: "0")) ?? 0, 0),
+      lastSuccessfulBoot: max(Int(stringValue(root, "lastSuccessfulBoot", default: "0")) ?? 0, 0),
+      status: BootStatus(rawValue: stringValue(root, "status", default: "idle")) ?? .idle,
+      consecutiveFailures: max(Int(stringValue(root, "consecutiveFailures", default: "0")) ?? 0, 0),
+      lastFailureReason: BootFailureReason(
+        rawValue: stringValue(root, "lastFailureReason", default: "none")
+      ) ?? .none
     )
+  }
+
+  /// `parseObject` yields `[String: String?]`, so subscript is `String??`.
+  private static func stringValue(
+    _ root: [String: String?],
+    _ key: String,
+    default defaultValue: String
+  ) -> String {
+    (root[key] ?? nil) ?? defaultValue
   }
 
   private static func parseObject(_ input: String) throws -> [String: String?] {
