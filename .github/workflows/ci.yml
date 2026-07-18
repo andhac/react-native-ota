@@ -40,6 +40,10 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+          
+      - name: Make Gradle Wrapper Executable
+        working-directory: packages/client/store-jvm
+        run: chmod +x gradlew
 
       - name: JVM Bundle Store Tests
         working-directory: packages/client/store-jvm
