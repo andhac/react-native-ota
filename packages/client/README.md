@@ -4,12 +4,13 @@ The device-plane npm library: TypeScript SDK + Android (Kotlin) + iOS (Swift) na
 
 ## Status
 
-**MS1 Part 1 complete:** Bundle Store (M2) on Android + iOS.  
-No Resolver, Downloader, Verifier, Rollback, or JS update API yet.
+**MS1 Part 1–2 complete:** Bundle Store (M2) + Bundle Resolver (M1, path-only) on Android + iOS.  
+No RN host hooks, Downloader, Verifier, Rollback, or JS update API yet.
 
-## Bundle Store
+## Docs
 
-See [docs/BUNDLE_STORE.md](docs/BUNDLE_STORE.md) for atomic writes, crash recovery, and module boundaries.
+- [docs/BUNDLE_STORE.md](docs/BUNDLE_STORE.md)
+- [docs/BUNDLE_RESOLVER.md](docs/BUNDLE_RESOLVER.md)
 
 | Platform | Path |
 |---|---|

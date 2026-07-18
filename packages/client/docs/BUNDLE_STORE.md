@@ -22,6 +22,8 @@ Both platforms expose the **same logical API** and obey [state-json.md](state-js
 | **`OtaPaths`** | Single place for path/file names and the slot-id regex — no magic strings. |
 | **`OtaStateCodec`** | Encode/decode with **stable key order**; sanitizes illegal slot-ids to `null`. |
 | **`FileIo` / `ControllableFileIo`** | Production FS vs crash-injection / disk-full simulation for tests. |
+| **`BundleStore.peekState()`** | Read-only `state.json` for M1 (no recovery write). |
+| **`BundleStore.hasCommittedBundle()`** | Read-only `bundle.hbc` existence check for M1. |
 | **`BundleStore`** | The M2 façade: layout, atomic pointer writes, slot lifecycle, GC. |
 
 ---

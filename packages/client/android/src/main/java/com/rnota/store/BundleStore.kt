@@ -200,6 +200,31 @@ class BundleStore(
 
   fun currentState(): BundleState = lock.withLock { cachedState }
 
+  /**
+   * Read-only snapshot of `state.json` for M1 Bundle Resolver.
+   *
+   * Does **not** create layout, recover, or write. Missing / corrupt / future-schema
+   * payloads yield [BundleState.EMPTY] (no active slot → embedded).
+   */
+  fun peekState(): BundleState =
+    lock.withLock {
+      if (!io.exists(stateFile) || !io.isFile(stateFile)) {
+        return@withLock BundleState.EMPTY
+      }
+      try {
+        OtaStateCodec.decode(io.readBytes(stateFile), config.supportedSchemaVersion)
+          ?: BundleState.EMPTY
+      } catch (_: Exception) {
+        BundleState.EMPTY
+      }
+    }
+
+  /** True when `slots/<id>/bundle.hbc` exists as a regular file. Read-only. */
+  fun hasCommittedBundle(slotId: String): Boolean =
+    lock.withLock {
+      OtaStateCodec.isValidSlotId(slotId) && isCommittedLocked(slotId)
+    }
+
   // region internals
 
   private fun ensureLayout() {
