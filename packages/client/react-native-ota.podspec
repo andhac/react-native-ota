@@ -20,7 +20,7 @@ Pod::Spec.new do |s|
 
   s.dependency "React-Core"
 
-  # New Architecture notes (documented for integrators; no codegen yet in MS0):
-  # - Host apps on RN 0.82+ enable bridgeless / Fabric by default.
-  # - MS2+ will add RCT_NEW_ARCH_ENABLED-gated TurboModule sources here.
+  # Bundle Store (M2) implemented under ios/RNOta/Store (MS1 Part 1).
+# New Architecture: host apps on RN 0.82+ enable bridgeless / Fabric by default.
+# TurboModules / Resolver land in later milestones.
 end

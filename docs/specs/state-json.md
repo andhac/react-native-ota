@@ -1,6 +1,8 @@
 # state.json — Schema v1
 
-> Normative spec for the OTA pointer file. Implemented by `packages/client/android/.../store/OtaStateCodec.kt` (Android) and, later, the iOS store. Changes require a schemaVersion bump and an entry here.
+> Normative spec for the OTA pointer file. Implemented by
+> `packages/client/android/.../store/` (Kotlin) and
+> `packages/client/ios/RNOta/Store/` (Swift). Changes require a schemaVersion bump and an entry here.
 
 ## Location
 
