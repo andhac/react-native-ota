@@ -210,6 +210,28 @@ public final class BundleStore: @unchecked Sendable {
     withLock { cachedState }
   }
 
+  /// Read-only snapshot of `state.json` for M1 Bundle Resolver.
+  /// Does **not** create layout, recover, or write.
+  public func peekState() -> BundleState {
+    withLock {
+      guard io.isFile(stateFile) else { return .empty }
+      do {
+        let bytes = try io.readData(from: stateFile)
+        return OtaStateCodec.decode(bytes: bytes, supportedSchemaVersion: config.supportedSchemaVersion)
+          ?? .empty
+      } catch {
+        return .empty
+      }
+    }
+  }
+
+  /// True when `slots/<id>/bundle.hbc` exists as a regular file. Read-only.
+  public func hasCommittedBundle(_ slotId: String) -> Bool {
+    withLock {
+      OtaStateCodec.isValidSlotId(slotId) && isCommittedLocked(slotId)
+    }
+  }
+
   // MARK: - Internals
 
   private func ensureLayout() throws {
