@@ -27,11 +27,13 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
-# Native
+# Native / test builds
 **/android/.gradle/
 **/android/local.properties
 **/ios/Pods/
 **/ios/build/
+packages/client/store-jvm/.gradle/
+packages/client/store-jvm/build/
 *.xcworkspace
 !default.xcworkspace
 
