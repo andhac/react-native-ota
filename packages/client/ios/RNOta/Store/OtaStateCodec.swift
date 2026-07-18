@@ -101,13 +101,11 @@ public enum OtaStateCodec {
     guard start < input.endIndex else {
       throw BundleStoreException.ioFailure("unexpected end of input")
     }
-
     if input[start...].hasPrefix("null") {
       return (nil, input.index(start, offsetBy: 4))
     }
 
     if input[start] == "\"" {
-      let end = try findStringEnd(input, from: input.index(after: start))
       let value = unescape(String(input[input.index(after: start)..<end]))
       return (value, input.index(after: end))
     }
