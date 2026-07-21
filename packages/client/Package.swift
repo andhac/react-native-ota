@@ -1,7 +1,7 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-/// Standalone test package for Bundle Store (M2) + Bundle Resolver (M1).
+/// Standalone test package for Store (M2) + Resolver (M1) + Watchdog (M6).
 /// Run on macOS: `swift test --package-path packages/client`
 let package = Package(
   name: "RNOtaStore",
