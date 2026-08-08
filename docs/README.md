@@ -10,9 +10,11 @@ Design contracts for implementation. MS0 (monorepo scaffold) is in progress; OTA
 | [../packages/client/docs/BUNDLE_STORE.md](../packages/client/docs/BUNDLE_STORE.md) | M2 Bundle Store design: atomic writes, recovery, API |
 | [../packages/client/docs/BUNDLE_RESOLVER.md](../packages/client/docs/BUNDLE_RESOLVER.md) | M1 Bundle Resolver: read-only path resolution |
 | [../packages/client/docs/BOOT_WATCHDOG.md](../packages/client/docs/BOOT_WATCHDOG.md) | M6 Boot Watchdog: boot.json + rollback signal |
+| [../packages/client/docs/ROLLBACK_ENGINE.md](../packages/client/docs/ROLLBACK_ENGINE.md) | Rollback Engine: Store pointer flips after watchdog |
+| [../packages/client/docs/BUNDLE_VERIFIER.md](../packages/client/docs/BUNDLE_VERIFIER.md) | M5 Bundle Verifier: SHA-256 + Ed25519, fail-closed validation |
 | [internals/android-bundle-loading.md](internals/android-bundle-loading.md) | Verified RN 0.82 Android boot/bundle-loading chain, interception points P1–P7, hard rules |
 | [internals/ios-bundle-loading.md](internals/ios-bundle-loading.md) | Verified RN 0.82 iOS boot/bundle-loading chain, interception points I1–I8, cross-platform resolver contract |
 
 Reference sources: RN `0.82-stable` files mirrored under `.rn-src/` (android + ios) — all `file:line` citations in the internals docs point there.
 
-Next phase: **MS3 — iOS parity polish / MS4 Trust Chain** (Watchdog reports rollback; Manager performs it later).
+Next phase: **MS5 — Downloader (M4) + Update Manager (M3) + Public API (M9)**.

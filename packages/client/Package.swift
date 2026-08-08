@@ -1,7 +1,7 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
-/// Standalone test package for Store (M2) + Resolver (M1) + Watchdog (M6).
+/// Standalone test package for Store + Resolver + Watchdog + Rollback.
 /// Run on macOS: `swift test --package-path packages/client`
 let package = Package(
   name: "RNOtaStore",
@@ -15,8 +15,6 @@ let package = Package(
       path: "ios/RNOta",
       exclude: [
         "Downloader",
-        "Verifier",
-        "Rollback",
         "RNOta.swift",
       ]
     ),
