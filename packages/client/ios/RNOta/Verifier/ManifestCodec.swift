@@ -70,37 +70,35 @@ enum CanonicalJson {
 }
 
 enum ManifestJsonParser {
-  static func parseObject(_ input: String) -> JsonValue.obj? {
+  static func parseObject(_ input: String) -> JsonValue? {
     let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}") else { return nil }
     var index = trimmed.startIndex
-    guard let (obj, next) = parseObjectInner(trimmed, &index, start: trimmed.startIndex) else {
+    guard let (value, next) = parseObjectInner(trimmed, trimmed.startIndex) else {
       return nil
     }
-    if skipWs(trimmed, &index, from: next) != trimmed.endIndex {
-      return nil
-    }
-    return obj
+    index = skipWs(trimmed, next)
+    guard index == trimmed.endIndex else { return nil }
+    guard case .obj = value else { return nil }
+    return value
   }
 
   private static func parseObjectInner(
     _ input: String,
-    _ index: inout String.Index,
-    start: String.Index
-  ) -> (JsonValue.obj, String.Index)? {
-    index = input.index(after: start)
+    _ start: String.Index
+  ) -> (JsonValue, String.Index)? {
+    var index = input.index(after: start)
     var entries: [String: JsonValue] = [:]
     while true {
-      index = skipWs(input, &index)
+      index = skipWs(input, index)
       if index < input.endIndex, input[index] == "}" {
         let next = input.index(after: index)
-        return (.obj(entries), next)
+        return (JsonValue.obj(entries), next)
       }
       guard let (key, afterKey) = parseString(input, index) else { return nil }
       index = skipWs(input, afterKey)
       guard index < input.endIndex, input[index] == ":" else { return nil }
-      index = input.index(after: index)
-      index = skipWs(input, index)
+      index = skipWs(input, input.index(after: index))
       guard let (value, afterValue) = parseValue(input, index) else { return nil }
       entries[key] = value
       index = skipWs(input, afterValue)
@@ -113,16 +111,15 @@ enum ManifestJsonParser {
 
   private static func parseArray(
     _ input: String,
-    _ index: inout String.Index,
-    start: String.Index
-  ) -> (JsonValue.arr, String.Index)? {
-    index = input.index(after: start)
+    _ start: String.Index
+  ) -> (JsonValue, String.Index)? {
+    var index = input.index(after: start)
     var items: [JsonValue] = []
     while true {
-      index = skipWs(input, &index)
+      index = skipWs(input, index)
       if index < input.endIndex, input[index] == "]" {
         let next = input.index(after: index)
-        return (.arr(items), next)
+        return (JsonValue.arr(items), next)
       }
       guard let (value, afterValue) = parseValue(input, index) else { return nil }
       items.append(value)
@@ -135,44 +132,40 @@ enum ManifestJsonParser {
   }
 
   private static func parseValue(_ input: String, _ start: String.Index) -> (JsonValue, String.Index)? {
-    var index = skipWs(input, start)
+    let index = skipWs(input, start)
     guard index < input.endIndex else { return nil }
     switch input[index] {
     case "\"":
-      return parseString(input, index).map { (.str($0.0), $0.1) }
+      return parseString(input, index).map { (JsonValue.str($0.0), $0.1) }
     case "{":
-      var i = index
-      return parseObjectInner(input, &i, start: index)
+      return parseObjectInner(input, index)
     case "[":
-      var i = index
-      return parseArray(input, &i, start: index)
+      return parseArray(input, index)
     case "t":
       guard input[index...].hasPrefix("true") else { return nil }
       let next = input.index(index, offsetBy: 4)
-      return (.bool(true), next)
+      return (JsonValue.bool(true), next)
     case "f":
       guard input[index...].hasPrefix("false") else { return nil }
       let next = input.index(index, offsetBy: 5)
-      return (.bool(false), next)
+      return (JsonValue.bool(false), next)
     case "n":
       guard input[index...].hasPrefix("null") else { return nil }
       let next = input.index(index, offsetBy: 4)
-      return (.null, next)
+      return (JsonValue.null, next)
     default:
       return parseNumber(input, index)
     }
   }
 
-  private static func parseNumber(_ input: String, _ start: String.Index) -> (JsonValue.num, String.Index)? {
+  private static func parseNumber(_ input: String, _ start: String.Index) -> (JsonValue, String.Index)? {
     var index = start
     if input[index] == "-" { index = input.index(after: index) }
     guard index < input.endIndex, input[index].isNumber else { return nil }
-    let intStart = index
     while index < input.endIndex, input[index].isNumber { index = input.index(after: index) }
     var end = index
     if index < input.endIndex, input[index] == "." {
-      let fracStart = input.index(after: index)
-      index = fracStart
+      index = input.index(after: index)
       guard index < input.endIndex, input[index].isNumber else { return nil }
       while index < input.endIndex, input[index].isNumber { index = input.index(after: index) }
       end = index
@@ -183,7 +176,7 @@ enum ManifestJsonParser {
     if !canonical.hasPrefix("-"), canonical.hasPrefix("0"), canonical.count > 1, canonical.dropFirst().first!.isNumber {
       return nil
     }
-    return (.num(canonical), end)
+    return (JsonValue.num(canonical), end)
   }
 
   private static func parseString(_ input: String, _ start: String.Index) -> (String, String.Index)? {
@@ -205,8 +198,9 @@ enum ManifestJsonParser {
         case "t": out.append("\t")
         case "u":
           let hexStart = input.index(after: index)
-          let hexEnd = input.index(hexStart, offsetBy: 4, limitedBy: input.endIndex) ?? input.endIndex
-          guard hexEnd <= input.endIndex, hexEnd > hexStart else { return nil }
+          guard let hexEnd = input.index(hexStart, offsetBy: 4, limitedBy: input.endIndex),
+                hexEnd <= input.endIndex
+          else { return nil }
           let hex = String(input[hexStart..<hexEnd])
           guard let scalar = UInt32(hex, radix: 16), let uni = UnicodeScalar(scalar) else { return nil }
           out.append(Character(uni))
@@ -226,16 +220,12 @@ enum ManifestJsonParser {
     return nil
   }
 
-  private static func skipWs(_ input: String, _ index: inout String.Index) {
-    while index < input.endIndex, input[index].isWhitespace {
-      index = input.index(after: index)
+  private static func skipWs(_ input: String, _ index: String.Index) -> String.Index {
+    var i = index
+    while i < input.endIndex, input[i].isWhitespace {
+      i = input.index(after: i)
     }
-  }
-
-  private static func skipWs(_ input: String, _ index: inout String.Index, from start: String.Index) -> String.Index {
-    index = start
-    skipWs(input, &index)
-    return index
+    return i
   }
 }
 
