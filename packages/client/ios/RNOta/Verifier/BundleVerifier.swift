@@ -118,13 +118,9 @@ enum HexUtils {
 enum PathGuard {
   static func isUnderAllowedRoot(target: URL, allowedRoot: URL?) -> Bool {
     guard let allowedRoot else { return true }
-    do {
-      let root = allowedRoot.standardizedFileURL.resolvingSymlinksInPath()
-      let resolved = target.standardizedFileURL.resolvingSymlinksInPath()
-      return resolved.path.hasPrefix(root.path + "/") || resolved.path == root.path
-    } catch {
-      return false
-    }
+    let root = allowedRoot.standardizedFileURL.resolvingSymlinksInPath()
+    let resolved = target.standardizedFileURL.resolvingSymlinksInPath()
+    return resolved.path.hasPrefix(root.path + "/") || resolved.path == root.path
   }
 
   static func containsTraversalSegment(_ path: String) -> Bool {

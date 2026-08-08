@@ -87,7 +87,9 @@ class BundleVerifierTest {
     if (!isPosix()) {
       return
     }
-    val bundle = writeBundle("unreadable", "secret")
+    val content = "secret"
+    val bundle = writeBundle("unreadable", content)
+    val hash = sha256HexOf(content.toByteArray())
     Files.setPosixFilePermissions(
       bundle.toPath(),
       setOf(PosixFilePermission.OWNER_WRITE),
@@ -97,7 +99,7 @@ class BundleVerifierTest {
       verifier.verify(
         VerificationRequest(
           bundleFile = bundle,
-          expectedSha256Hex = sha256HexOf(bundle),
+          expectedSha256Hex = hash,
           allowedRoot = root,
         ),
       )

@@ -23,8 +23,9 @@ final class BundleVerifierTests: XCTestCase {
   }
 
   func testVerifyValidBundleSucceeds() throws {
-    let bundle = try writeBundle(name: "valid", content: "valid bundle bytes")
-    let hash = sha256Hex(of: Data("valid bundle bytes".utf8))
+    let content = Data("valid bundle bytes".utf8)
+    let bundle = try writeBundle(name: "valid", content: content)
+    let hash = sha256Hex(of: content)
 
     let result = verifier.verify(
       VerificationRequest(
@@ -35,7 +36,7 @@ final class BundleVerifierTests: XCTestCase {
     )
 
     XCTAssertTrue(result.isVerified)
-    XCTAssertEqual(result.reason, .none)
+    XCTAssertEqual(result.reason, VerificationFailureReason.none)
     XCTAssertEqual(result.actualSha256Hex, hash)
   }
 
@@ -419,7 +420,9 @@ final class BundleVerifierTests: XCTestCase {
     content: Data,
     dir: URL? = nil
   ) throws -> URL {
-    let base = dir ?? root
+    guard let base = dir ?? root else {
+      throw NSError(domain: "BundleVerifierTests", code: 1)
+    }
     let url = base.appendingPathComponent("\(name).hbc")
     try content.write(to: url)
     return url
