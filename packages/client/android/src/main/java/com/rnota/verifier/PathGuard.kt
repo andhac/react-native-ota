@@ -3,16 +3,13 @@ package com.rnota.verifier
 import java.io.File
 
 /**
- * Ensures verification targets stay inside an allowed directory (path traversal defense).
+ * Ensures verification targets stay inside a required allowed directory (path traversal defense).
  */
 internal object PathGuard {
   fun isUnderAllowedRoot(
     target: File,
-    allowedRoot: File?,
+    allowedRoot: File,
   ): Boolean {
-    if (allowedRoot == null) {
-      return true
-    }
     return try {
       val root = allowedRoot.canonicalFile.toPath().normalize()
       val resolved = target.canonicalFile.toPath().normalize()

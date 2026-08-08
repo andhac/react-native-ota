@@ -231,11 +231,8 @@ final class BundleVerifierTests: XCTestCase {
       "assets": []
     }
     """
-    let manifestData = Data(manifest.utf8)
-    try manifestData.write(to: slot.appendingPathComponent("manifest.json"))
-    let signature = try privateKey.signature(for: manifestData)
-    try Data(signature.base64EncodedString().utf8)
-      .write(to: slot.appendingPathComponent("manifest.json.sig"))
+    try Data(manifest.utf8).write(to: slot.appendingPathComponent("manifest.json"))
+    try writeSignature(slot: slot, manifest: manifest)
 
     let result = verifier.verifySlot(
       slotDirectory: slot,
@@ -343,11 +340,8 @@ final class BundleVerifierTests: XCTestCase {
       "assets": [ { "path": "assets/icon.png", "sha256": "\(wrongAssetHash)" } ]
     }
     """
-    let manifestData = Data(manifest.utf8)
-    try manifestData.write(to: slot.appendingPathComponent("manifest.json"))
-    let signature = try privateKey.signature(for: manifestData)
-    try Data(signature.base64EncodedString().utf8)
-      .write(to: slot.appendingPathComponent("manifest.json.sig"))
+    try Data(manifest.utf8).write(to: slot.appendingPathComponent("manifest.json"))
+    try writeSignature(slot: slot, manifest: manifest)
 
     let result = verifier.verifySlot(
       slotDirectory: slot,
@@ -370,11 +364,7 @@ final class BundleVerifierTests: XCTestCase {
       "assets": [ { "path": "../escape.png", "sha256": "\(String(repeating: "a", count: 64))" } ]
     }
     """
-    let manifestData = Data(manifest.utf8)
-    try manifestData.write(to: slot.appendingPathComponent("manifest.json"))
-    let signature = try privateKey.signature(for: manifestData)
-    try Data(signature.base64EncodedString().utf8)
-      .write(to: slot.appendingPathComponent("manifest.json.sig"))
+    try Data(manifest.utf8).write(to: slot.appendingPathComponent("manifest.json"))
 
     let result = verifier.verifySlot(
       slotDirectory: slot,
@@ -382,7 +372,77 @@ final class BundleVerifierTests: XCTestCase {
       allowedRoot: root
     )
 
-    XCTAssertTrue(result.reason == .manifestInvalid || result.reason == .pathUnsafe)
+    XCTAssertEqual(result.reason, .pathUnsafe)
+  }
+
+  func testVerifyPathOutsideAllowedRootRejects() throws {
+    let outside = root.deletingLastPathComponent()
+      .appendingPathComponent("outside-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: outside) }
+    let bundle = try writeBundle(name: "outside", content: Data("x".utf8), dir: outside)
+    let hash = sha256Hex(of: Data("x".utf8))
+
+    let result = verifier.verify(
+      VerificationRequest(
+        bundleFile: bundle,
+        expectedSha256Hex: hash,
+        allowedRoot: root
+      )
+    )
+
+    XCTAssertEqual(result.reason, .pathUnsafe)
+  }
+
+  func testVerifySlotWrongBundleFilenameRejects() throws {
+    let slot = try makeSlot(name: "wrong-name")
+    try Data("payload".utf8).write(to: slot.appendingPathComponent("bundle.hbc"))
+    let bundleHash = sha256Hex(of: Data("payload".utf8))
+    let manifest = """
+    {
+      "schemaVersion": 1,
+      "bundle": { "file": "other.hbc", "sha256": "\(bundleHash)" },
+      "assets": []
+    }
+    """
+    try Data(manifest.utf8).write(to: slot.appendingPathComponent("manifest.json"))
+
+    let result = verifier.verifySlot(
+      slotDirectory: slot,
+      trustedPublicKeys: [publicKeyRaw],
+      allowedRoot: root
+    )
+
+    XCTAssertEqual(result.reason, .bundleFilenameMismatch)
+  }
+
+  func testVerifySlotCanonicalJsonEquivalentFormatting() throws {
+    let slot = try makeSlot(name: "canonical")
+    let bundleContent = Data("canonical-payload".utf8)
+    try bundleContent.write(to: slot.appendingPathComponent("bundle.hbc"))
+    let bundleHash = sha256Hex(of: bundleContent)
+    let pretty = """
+    {
+      "schemaVersion": 1,
+      "runtimeVersion": "1.0.0",
+      "bundle": { "file": "bundle.hbc", "sha256": "\(bundleHash)" },
+      "assets": []
+    }
+    """
+    let compact =
+      "{\"schemaVersion\":1,\"runtimeVersion\":\"1.0.0\",\"bundle\":{\"file\":\"bundle.hbc\",\"sha256\":\"\(bundleHash)\"},\"assets\":[]}"
+    try Data(pretty.utf8).write(to: slot.appendingPathComponent("manifest.json"))
+    try writeSignature(slot: slot, manifest: pretty)
+
+    let result = verifier.verifySlot(
+      slotDirectory: slot,
+      trustedPublicKeys: [publicKeyRaw],
+      allowedRoot: root,
+      runningRuntimeVersion: "1.0.0"
+    )
+
+    XCTAssertTrue(result.isVerified)
+    XCTAssertEqual(try signingPayload(pretty), try signingPayload(compact))
   }
 
   private func makeSlot(name: String) throws -> URL {
@@ -407,12 +467,26 @@ final class BundleVerifierTests: XCTestCase {
       "assets": []
     }
     """
-    let manifestData = Data(manifest.utf8)
-    try manifestData.write(to: slot.appendingPathComponent("manifest.json"))
-    let signature = try privateKey.signature(for: manifestData)
+    try Data(manifest.utf8).write(to: slot.appendingPathComponent("manifest.json"))
+    try writeSignature(slot: slot, manifest: manifest)
+    return slot
+  }
+
+  private func signingPayload(_ manifest: String) throws -> Data {
+    let file = root.appendingPathComponent("manifest-tmp-\(UUID().uuidString).json")
+    try Data(manifest.utf8).write(to: file)
+    defer { try? FileManager.default.removeItem(at: file) }
+    guard case let .ok(parsed) = ManifestCodec.parse(manifestFile: file) else {
+      throw NSError(domain: "BundleVerifierTests", code: 2)
+    }
+    return parsed.signingPayloadBytes
+  }
+
+  private func writeSignature(slot: URL, manifest: String) throws {
+    let payload = try signingPayload(manifest)
+    let signature = try privateKey.signature(for: payload)
     try Data(signature.base64EncodedString().utf8)
       .write(to: slot.appendingPathComponent("manifest.json.sig"))
-    return slot
   }
 
   private func writeBundle(

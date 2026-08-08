@@ -21,14 +21,15 @@ enum VerificationFailureReason: Equatable {
   case manifestInvalid
   case runtimeMismatch
   case pathUnsafe
+  case bundleFilenameMismatch
   case internalError
 }
 
 struct VerificationRequest: Equatable {
   let bundleFile: URL
   let expectedSha256Hex: String
+  let allowedRoot: URL
   let expectedSizeBytes: Int64?
-  let allowedRoot: URL?
   let manifestFile: URL?
   let detachedSignatureBase64: String?
   let trustedPublicKeys: [Data]
@@ -37,8 +38,8 @@ struct VerificationRequest: Equatable {
   init(
     bundleFile: URL,
     expectedSha256Hex: String,
+    allowedRoot: URL,
     expectedSizeBytes: Int64? = nil,
-    allowedRoot: URL? = nil,
     manifestFile: URL? = nil,
     detachedSignatureBase64: String? = nil,
     trustedPublicKeys: [Data] = [],
@@ -46,8 +47,8 @@ struct VerificationRequest: Equatable {
   ) {
     self.bundleFile = bundleFile
     self.expectedSha256Hex = expectedSha256Hex
-    self.expectedSizeBytes = expectedSizeBytes
     self.allowedRoot = allowedRoot
+    self.expectedSizeBytes = expectedSizeBytes
     self.manifestFile = manifestFile
     self.detachedSignatureBase64 = detachedSignatureBase64
     self.trustedPublicKeys = trustedPublicKeys
@@ -116,8 +117,7 @@ enum HexUtils {
 }
 
 enum PathGuard {
-  static func isUnderAllowedRoot(target: URL, allowedRoot: URL?) -> Bool {
-    guard let allowedRoot else { return true }
+  static func isUnderAllowedRoot(target: URL, allowedRoot: URL) -> Bool {
     let root = allowedRoot.standardizedFileURL.resolvingSymlinksInPath()
     let resolved = target.standardizedFileURL.resolvingSymlinksInPath()
     return resolved.path.hasPrefix(root.path + "/") || resolved.path == root.path
@@ -153,58 +153,6 @@ enum Ed25519Verifier {
 struct AssetEntry: Equatable {
   let relativePath: String
   let sha256Hex: String
-}
-
-struct ParsedManifest: Equatable {
-  let runtimeVersion: String?
-  let bundleSha256Hex: String
-  let assets: [AssetEntry]
-  let canonicalBytes: Data
-}
-
-enum ManifestCodec {
-  static func parse(manifestFile: URL) -> ParsedManifest? {
-    guard FileManager.default.fileExists(atPath: manifestFile.path),
-          let raw = try? Data(contentsOf: manifestFile),
-          !raw.isEmpty,
-          let json = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
-          json["schemaVersion"] != nil,
-          let bundle = json["bundle"] as? [String: Any],
-          let bundleHashRaw = bundle["sha256"] as? String,
-          let normalizedBundleHash = HexUtils.normalizeSha256Hex(bundleHashRaw)
-    else {
-      return nil
-    }
-
-    let bundleFileName = bundle["file"] as? String ?? OtaPaths.bundleFileName
-    if PathGuard.containsTraversalSegment(bundleFileName) {
-      return nil
-    }
-
-    var assets: [AssetEntry] = []
-    if let assetsArray = json["assets"] as? [[String: Any]] {
-      for item in assetsArray {
-        guard let path = item["path"] as? String,
-              let hashRaw = item["sha256"] as? String,
-              let normalized = HexUtils.normalizeSha256Hex(hashRaw)
-        else {
-          return nil
-        }
-        if PathGuard.containsTraversalSegment(path) {
-          return nil
-        }
-        assets.append(AssetEntry(relativePath: path, sha256Hex: normalized))
-      }
-    }
-
-    let runtimeVersion = json["runtimeVersion"] as? String
-    return ParsedManifest(
-      runtimeVersion: runtimeVersion,
-      bundleSha256Hex: normalizedBundleHash,
-      assets: assets,
-      canonicalBytes: raw
-    )
-  }
 }
 
 /// Security gate for OTA bundles — validation only, never activation.
@@ -328,7 +276,7 @@ final class BundleVerifier {
   func verifySlot(
     slotDirectory: URL,
     trustedPublicKeys: [Data],
-    allowedRoot: URL? = nil,
+    allowedRoot: URL,
     runningRuntimeVersion: String? = nil,
     signatureBase64: String? = nil
   ) -> VerificationResult {
@@ -346,28 +294,23 @@ final class BundleVerifier {
     }
 
     let manifestFile = slotDirectory.appendingPathComponent(OtaPaths.manifestFileName)
-    guard fm.fileExists(atPath: manifestFile.path) else {
-      return .rejected(reason: .manifestMissing, message: "manifest.json is missing")
-    }
-
-    let signatureFile = slotDirectory.appendingPathComponent("\(OtaPaths.manifestFileName).sig")
-    guard let parsed = ManifestCodec.parse(manifestFile: manifestFile) else {
-      return .rejected(reason: .manifestInvalid, message: "manifest.json is invalid")
-    }
+    let (parsed, parseFailure) = parseManifest(manifestFile)
+    if let parseFailure { return parseFailure }
 
     if trustedPublicKeys.isEmpty {
       return .rejected(
         reason: .signatureMissing,
-        expectedSha256Hex: parsed.bundleSha256Hex,
+        expectedSha256Hex: parsed!.bundleSha256Hex,
         message: "No trusted public keys configured"
       )
     }
 
+    let signatureFile = slotDirectory.appendingPathComponent("\(OtaPaths.manifestFileName).sig")
     let sigEncoded = signatureBase64 ?? readSignatureSidecar(signatureFile)
     guard let sigEncoded, !sigEncoded.isEmpty else {
       return .rejected(
         reason: .signatureMissing,
-        expectedSha256Hex: parsed.bundleSha256Hex,
+        expectedSha256Hex: parsed!.bundleSha256Hex,
         message: "Detached manifest signature is missing"
       )
     }
@@ -375,30 +318,30 @@ final class BundleVerifier {
     guard let signatureBytes = Ed25519Verifier.decodeBase64Signature(sigEncoded) else {
       return .rejected(
         reason: .malformedSignature,
-        expectedSha256Hex: parsed.bundleSha256Hex,
+        expectedSha256Hex: parsed!.bundleSha256Hex,
         message: "Detached signature is malformed"
       )
     }
 
     if !verifySignatureWithAnyKey(
-      message: parsed.canonicalBytes,
+      message: parsed!.signingPayloadBytes,
       signature: signatureBytes,
       publicKeys: trustedPublicKeys
     ) {
       return .rejected(
         reason: .signatureInvalid,
-        expectedSha256Hex: parsed.bundleSha256Hex,
+        expectedSha256Hex: parsed!.bundleSha256Hex,
         message: "Ed25519 signature verification failed"
       )
     }
 
     if let running = runningRuntimeVersion,
-       let manifestRuntime = parsed.runtimeVersion,
+       let manifestRuntime = parsed!.runtimeVersion,
        manifestRuntime != running
     {
       return .rejected(
         reason: .runtimeMismatch,
-        expectedSha256Hex: parsed.bundleSha256Hex,
+        expectedSha256Hex: parsed!.bundleSha256Hex,
         message: "runtimeVersion mismatch: manifest=\(manifestRuntime) running=\(running)"
       )
     }
@@ -407,15 +350,15 @@ final class BundleVerifier {
     let bundleResult = verify(
       VerificationRequest(
         bundleFile: bundleFile,
-        expectedSha256Hex: parsed.bundleSha256Hex,
-        allowedRoot: allowedRoot ?? slotDirectory.deletingLastPathComponent()
+        expectedSha256Hex: parsed!.bundleSha256Hex,
+        allowedRoot: allowedRoot
       )
     )
     if !bundleResult.isVerified {
       return bundleResult
     }
 
-    for asset in parsed.assets {
+    for asset in parsed!.assets {
       let assetFile = slotDirectory.appendingPathComponent(asset.relativePath)
       if !PathGuard.isUnderAllowedRoot(target: assetFile, allowedRoot: slotDirectory) {
         return .rejected(
@@ -446,6 +389,15 @@ final class BundleVerifier {
     return bundleResult
   }
 
+  private func parseManifest(_ manifestFile: URL) -> (ParsedManifest?, VerificationResult?) {
+    switch ManifestCodec.parse(manifestFile: manifestFile) {
+    case let .ok(manifest):
+      return (manifest, nil)
+    case let .err(reason, message):
+      return (nil, .rejected(reason: reason, message: message))
+    }
+  }
+
   private func verifyManifestChain(
     request: VerificationRequest,
     expectedHash: String,
@@ -466,19 +418,24 @@ final class BundleVerifier {
 
     let signatureFile = manifestFile.deletingLastPathComponent()
       .appendingPathComponent("\(manifestFile.lastPathComponent).sig")
-    guard let parsed = ManifestCodec.parse(manifestFile: manifestFile) else {
-      return .rejected(
-        reason: .manifestInvalid,
+    let (parsed, parseFailure) = parseManifest(manifestFile)
+    if let parseFailure {
+      return VerificationResult(
+        status: parseFailure.status,
+        reason: parseFailure.reason,
         expectedSha256Hex: expectedHash,
-        bundleSizeBytes: sizeBytes
+        actualSha256Hex: parseFailure.actualSha256Hex,
+        bundleSizeBytes: sizeBytes,
+        message: parseFailure.message
       )
     }
+    let manifest = parsed!
 
-    if !constantTimeHashEquals(expectedHash, parsed.bundleSha256Hex) {
+    if !constantTimeHashEquals(expectedHash, manifest.bundleSha256Hex) {
       return .rejected(
         reason: .hashMismatch,
         expectedSha256Hex: expectedHash,
-        actualSha256Hex: parsed.bundleSha256Hex,
+        actualSha256Hex: manifest.bundleSha256Hex,
         bundleSizeBytes: sizeBytes,
         message: "Expected hash does not match signed manifest bundle hash"
       )
@@ -510,7 +467,7 @@ final class BundleVerifier {
     }
 
     if !verifySignatureWithAnyKey(
-      message: parsed.canonicalBytes,
+      message: manifest.signingPayloadBytes,
       signature: signatureBytes,
       publicKeys: request.trustedPublicKeys
     ) {
@@ -522,7 +479,7 @@ final class BundleVerifier {
     }
 
     if let running = request.runningRuntimeVersion,
-       let manifestRuntime = parsed.runtimeVersion,
+       let manifestRuntime = manifest.runtimeVersion,
        manifestRuntime != running
     {
       return .rejected(

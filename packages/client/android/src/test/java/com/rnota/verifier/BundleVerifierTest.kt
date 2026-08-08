@@ -217,6 +217,147 @@ class BundleVerifierTest {
   }
 
   @Test
+  fun verify_pathOutsideAllowedRoot_rejects() {
+    val outside = temp.newFolder("outside")
+    val bundle = writeBundle("outside", "x", dir = outside)
+    val hash = sha256HexOf("x".toByteArray())
+
+    val result =
+      verifier.verify(
+        VerificationRequest(
+          bundleFile = bundle,
+          expectedSha256Hex = hash,
+          allowedRoot = root,
+        ),
+      )
+
+    assertEquals(VerificationFailureReason.PATH_UNSAFE, result.reason)
+  }
+
+  @Test
+  fun verify_pathInsideAllowedRoot_succeeds() {
+    val bundle = writeBundle("inside", "inside-bytes")
+    val hash = sha256HexOf("inside-bytes".toByteArray())
+
+    val result =
+      verifier.verify(
+        VerificationRequest(
+          bundleFile = bundle,
+          expectedSha256Hex = hash,
+          allowedRoot = root,
+        ),
+      )
+
+    assertTrue(result.isVerified)
+  }
+
+  @Test
+  fun verifySlot_canonicalJsonFormatting_equivalentPayloadsVerify() {
+    val slot = File(root, "slots/canonical-slot").apply { mkdirs() }
+    val bundleContent = "canonical-payload"
+    File(slot, "bundle.hbc").writeText(bundleContent)
+    val bundleHash = sha256HexOf(bundleContent.toByteArray())
+    val compact =
+      """{"schemaVersion":1,"runtimeVersion":"1.0.0","bundle":{"file":"bundle.hbc","sha256":"$bundleHash"},"assets":[]}"""
+    val pretty =
+      """
+      {
+        "schemaVersion": 1,
+        "runtimeVersion": "1.0.0",
+        "bundle": { "file": "bundle.hbc", "sha256": "$bundleHash" },
+        "assets": []
+      }
+      """.trimIndent()
+    writeSignedManifest(slot, pretty)
+
+    val result =
+      verifier.verifySlot(
+        slotDirectory = slot,
+        trustedPublicKeys = listOf(publicKeyRaw),
+        allowedRoot = root,
+        runningRuntimeVersion = "1.0.0",
+      )
+
+    assertTrue(result.isVerified)
+    assertEquals(signingPayload(compact).toList(), signingPayload(pretty).toList())
+  }
+
+  @Test
+  fun verifySlot_wrongBundleFilename_rejects() {
+    val slot = File(root, "slots/wrong-name").apply { mkdirs() }
+    File(slot, "bundle.hbc").writeText("payload")
+    val bundleHash = sha256HexOf("payload".toByteArray())
+    val manifest =
+      """
+      {
+        "schemaVersion": 1,
+        "bundle": { "file": "other.hbc", "sha256": "$bundleHash" },
+        "assets": []
+      }
+      """.trimIndent()
+    File(slot, "manifest.json").writeText(manifest)
+
+    val result =
+      verifier.verifySlot(
+        slotDirectory = slot,
+        trustedPublicKeys = listOf(publicKeyRaw),
+        allowedRoot = root,
+      )
+
+    assertEquals(VerificationFailureReason.BUNDLE_FILENAME_MISMATCH, result.reason)
+  }
+
+  @Test
+  fun verifySlot_missingBundleFileField_rejects() {
+    val slot = File(root, "slots/no-file-field").apply { mkdirs() }
+    File(slot, "bundle.hbc").writeText("payload")
+    val bundleHash = sha256HexOf("payload".toByteArray())
+    val manifest =
+      """
+      {
+        "schemaVersion": 1,
+        "bundle": { "sha256": "$bundleHash" },
+        "assets": []
+      }
+      """.trimIndent()
+    File(slot, "manifest.json").writeText(manifest)
+
+    val result =
+      verifier.verifySlot(
+        slotDirectory = slot,
+        trustedPublicKeys = listOf(publicKeyRaw),
+        allowedRoot = root,
+      )
+
+    assertEquals(VerificationFailureReason.MANIFEST_INVALID, result.reason)
+  }
+
+  @Test
+  fun verifySlot_traversalBundleFilename_rejects() {
+    val slot = File(root, "slots/traversal-file").apply { mkdirs() }
+    File(slot, "bundle.hbc").writeText("payload")
+    val bundleHash = sha256HexOf("payload".toByteArray())
+    val manifest =
+      """
+      {
+        "schemaVersion": 1,
+        "bundle": { "file": "../bundle.hbc", "sha256": "$bundleHash" },
+        "assets": []
+      }
+      """.trimIndent()
+    File(slot, "manifest.json").writeText(manifest)
+
+    val result =
+      verifier.verifySlot(
+        slotDirectory = slot,
+        trustedPublicKeys = listOf(publicKeyRaw),
+        allowedRoot = root,
+      )
+
+    assertEquals(VerificationFailureReason.BUNDLE_FILENAME_MISMATCH, result.reason)
+  }
+
+  @Test
   fun verify_pathTraversal_rejects() {
     val outside = temp.newFolder("outside")
     val bundle = writeBundle("outside", "x", dir = outside)
@@ -285,8 +426,7 @@ class BundleVerifierTest {
       }
       """.trimIndent()
     val manifestFile = File(slot, "manifest.json").apply { writeText(manifest) }
-    val signature = sign(manifest.toByteArray())
-    File(slot, "manifest.json.sig").writeText(Base64.getEncoder().encodeToString(signature))
+    writeSignature(slot, manifest)
 
     val result =
       verifier.verifySlot(
@@ -410,9 +550,7 @@ class BundleVerifierTest {
       }
       """.trimIndent()
     File(slot, "manifest.json").writeText(manifest)
-    File(slot, "manifest.json.sig").writeText(
-      Base64.getEncoder().encodeToString(sign(manifest.toByteArray())),
-    )
+    writeSignature(slot, manifest)
 
     val result =
       verifier.verifySlot(
@@ -439,9 +577,6 @@ class BundleVerifierTest {
       }
       """.trimIndent()
     File(slot, "manifest.json").writeText(manifest)
-    File(slot, "manifest.json.sig").writeText(
-      Base64.getEncoder().encodeToString(sign(manifest.toByteArray())),
-    )
 
     val result =
       verifier.verifySlot(
@@ -450,10 +585,7 @@ class BundleVerifierTest {
         allowedRoot = root,
       )
 
-    assertTrue(
-      result.reason == VerificationFailureReason.MANIFEST_INVALID ||
-        result.reason == VerificationFailureReason.PATH_UNSAFE,
-    )
+    assertEquals(VerificationFailureReason.PATH_UNSAFE, result.reason)
   }
 
   private fun setupSignedSlot(
@@ -474,10 +606,27 @@ class BundleVerifierTest {
       }
       """.trimIndent()
     File(slot, "manifest.json").writeText(manifest)
-    File(slot, "manifest.json.sig").writeText(
-      Base64.getEncoder().encodeToString(sign(manifest.toByteArray())),
-    )
+    writeSignature(slot, manifest)
     return slot
+  }
+
+  private fun signingPayload(manifestText: String): ByteArray {
+    val file = File.createTempFile("manifest", ".json", root)
+    file.writeText(manifestText)
+    val parsed = ManifestCodec.parse(file) as ManifestParseResult.Ok
+    return parsed.manifest.signingPayloadBytes
+  }
+
+  private fun writeSignature(slot: File, manifestText: String) {
+    val payload = signingPayload(manifestText)
+    File(slot, "manifest.json.sig").writeText(
+      Base64.getEncoder().encodeToString(sign(payload)),
+    )
+  }
+
+  private fun writeSignedManifest(slot: File, manifestText: String) {
+    File(slot, "manifest.json").writeText(manifestText)
+    writeSignature(slot, manifestText)
   }
 
   private fun writeBundle(

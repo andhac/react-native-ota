@@ -250,6 +250,31 @@ class RollbackEngineTest {
     assertEquals(2, store.listSlots().size)
   }
 
+  @Test
+  fun rollbackIfNeeded_twice_secondCallIsNoOp() {
+    commit("prev-ok")
+    commit("bad-active")
+    store.saveState(
+      BundleState(
+        installedBinaryVersion = "1.0.0",
+        activeSlot = "bad-active",
+        pendingSlot = "pending-x",
+        previousSlot = "prev-ok",
+      ),
+    )
+    forceWatchdogRollbackRequired()
+
+    val first = engine.rollbackIfNeeded()
+    assertTrue(first.performed)
+    assertEquals("prev-ok", store.peekState().activeSlot)
+    assertNull(store.peekState().pendingSlot)
+
+    val second = engine.rollbackIfNeeded()
+    assertFalse(second.performed)
+    assertEquals(RollbackReason.NOT_REQUIRED, second.reason)
+    assertEquals("prev-ok", store.peekState().activeSlot)
+  }
+
   private fun commit(id: String) {
     val info = store.createSlot(id)
     info.bundleFile.writeBytes(byteArrayOf(0xC6.toByte(), 0x1F, 0x00))

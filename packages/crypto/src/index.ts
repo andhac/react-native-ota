@@ -2,7 +2,8 @@
  * Shared cryptographic constants and utilities for react-native-ota.
  *
  * Device-side verification is implemented in native M5 (Android/iOS).
- * CLI signing (M14) will use the same hex normalization and Ed25519 semantics.
+ * Ed25519 signatures are over canonical JSON manifest bytes (ROADMAP MS4).
+ * M14 CLI sign/verify will use the same canonicalization rules.
  */
 
 /** SHA-256 digest length in bytes. */

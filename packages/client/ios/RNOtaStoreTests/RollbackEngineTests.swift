@@ -149,6 +149,46 @@ final class RollbackEngineTests: XCTestCase {
     XCTAssertEqual(try store.listSlots().count, 2)
   }
 
+  func testRollbackIfNeededTwiceSecondCallIsNoOp() throws {
+    try commit("prev-ok")
+    try commit("bad-active")
+    try store.saveState(
+      BundleState(
+        installedBinaryVersion: "1.0.0",
+        activeSlot: "bad-active",
+        pendingSlot: "pending-x",
+        previousSlot: "prev-ok"
+      )
+    )
+    try forceWatchdogRollbackRequired()
+
+    let first = try engine.rollbackIfNeeded()
+    XCTAssertTrue(first.performed)
+    XCTAssertEqual(store.peekState().activeSlot, "prev-ok")
+    XCTAssertNil(store.peekState().pendingSlot)
+
+    let second = try engine.rollbackIfNeeded()
+    XCTAssertFalse(second.performed)
+    XCTAssertEqual(second.reason, .notRequired)
+    XCTAssertEqual(store.peekState().activeSlot, "prev-ok")
+  }
+
+  func testRollbackToPreviousExplicit() throws {
+    try commit("prev-ok")
+    try commit("bad-active")
+    try store.saveState(
+      BundleState(
+        installedBinaryVersion: "1.0.0",
+        activeSlot: "bad-active",
+        previousSlot: "prev-ok"
+      )
+    )
+    let result = try engine.rollbackToPrevious()
+    XCTAssertTrue(result.performed)
+    XCTAssertEqual(result.reason, .explicitPrevious)
+    XCTAssertEqual(store.peekState().activeSlot, "prev-ok")
+  }
+
   private func commit(_ id: String) throws {
     let info = try store.createSlot(id)
     try Data([0xC6, 0x1F, 0x00]).write(to: info.bundleFile)

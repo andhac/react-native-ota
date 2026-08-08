@@ -3,14 +3,12 @@ package com.rnota.verifier
 import com.rnota.store.OtaPaths
 import java.io.File
 
-/**
- * Minimal manifest v1 parser for verification (full schema lands in packages/protocol MS4+).
- */
 internal data class ParsedManifest(
   val runtimeVersion: String?,
   val bundleSha256Hex: String,
   val assets: List<AssetEntry>,
-  val canonicalBytes: ByteArray,
+  /** Ed25519 signing payload — canonical JSON bytes (not raw file bytes). */
+  val signingPayloadBytes: ByteArray,
 )
 
 internal data class AssetEntry(
@@ -18,164 +16,218 @@ internal data class AssetEntry(
   val sha256Hex: String,
 )
 
+internal sealed class ManifestParseResult {
+  data class Ok(val manifest: ParsedManifest) : ManifestParseResult()
+
+  data class Err(
+    val reason: VerificationFailureReason,
+    val message: String? = null,
+  ) : ManifestParseResult()
+}
+
 internal object ManifestCodec {
-  fun parse(manifestFile: File): ParsedManifest? {
+  fun parse(manifestFile: File): ManifestParseResult {
     if (!manifestFile.isFile) {
-      return null
+      return ManifestParseResult.Err(
+        reason = VerificationFailureReason.MANIFEST_MISSING,
+        message = "manifest.json is missing",
+      )
     }
     return try {
       val raw = manifestFile.readBytes()
       if (raw.isEmpty()) {
-        return null
+        return ManifestParseResult.Err(VerificationFailureReason.MANIFEST_INVALID, "manifest is empty")
       }
       val text = String(raw, Charsets.UTF_8).trim()
-      val root = MinimalJson.parseObject(text) ?: return null
-      if (!root.containsKey("schemaVersion")) {
-        return null
+      val root = ManifestJsonParser.parseObject(text)
+        ?: return ManifestParseResult.Err(VerificationFailureReason.MANIFEST_INVALID, "invalid JSON object")
+
+      if (!root.entries.containsKey("schemaVersion")) {
+        return ManifestParseResult.Err(VerificationFailureReason.MANIFEST_INVALID, "schemaVersion is required")
       }
 
-      val bundle = root["bundle"] as? Map<*, *> ?: return null
-      val bundleHashRaw = bundle["sha256"] as? String ?: return null
-      val normalizedBundleHash = HexUtils.normalizeSha256Hex(bundleHashRaw) ?: return null
-      val bundleFileName = bundle["file"] as? String ?: OtaPaths.BUNDLE_FILE_NAME
-      if (PathGuard.containsTraversalSegment(bundleFileName)) {
-        return null
+      val bundleObj = root.entries["bundle"] as? JsonValue.Obj
+        ?: return ManifestParseResult.Err(VerificationFailureReason.MANIFEST_INVALID, "bundle object is required")
+
+      val bundleFileValue = bundleObj.entries["file"]
+      if (bundleFileValue !is JsonValue.Str) {
+        return ManifestParseResult.Err(
+          reason = VerificationFailureReason.MANIFEST_INVALID,
+          message = "bundle.file is required",
+        )
       }
+      val bundleFileName = bundleFileValue.value
+      if (PathGuard.containsTraversalSegment(bundleFileName)) {
+        return ManifestParseResult.Err(
+          reason = VerificationFailureReason.BUNDLE_FILENAME_MISMATCH,
+          message = "bundle.file contains path traversal",
+        )
+      }
+      if (bundleFileName != OtaPaths.BUNDLE_FILE_NAME) {
+        return ManifestParseResult.Err(
+          reason = VerificationFailureReason.BUNDLE_FILENAME_MISMATCH,
+          message = "bundle.file must be ${OtaPaths.BUNDLE_FILE_NAME}",
+        )
+      }
+
+      val bundleHashValue = bundleObj.entries["sha256"]
+      if (bundleHashValue !is JsonValue.Str) {
+        return ManifestParseResult.Err(VerificationFailureReason.MANIFEST_INVALID, "bundle.sha256 is required")
+      }
+      val normalizedBundleHash = HexUtils.normalizeSha256Hex(bundleHashValue.value)
+        ?: return ManifestParseResult.Err(VerificationFailureReason.MALFORMED_HASH, "bundle.sha256 is malformed")
 
       val assets = mutableListOf<AssetEntry>()
-      @Suppress("UNCHECKED_CAST")
-      val assetsArray = root["assets"] as? List<Map<String, String>>
-      if (assetsArray != null) {
-        for (item in assetsArray) {
-          val path = item["path"] ?: return null
-          if (PathGuard.containsTraversalSegment(path)) {
-            return null
+      when (val assetsNode = root.entries["assets"]) {
+        null, JsonValue.Null -> Unit
+        is JsonValue.Arr -> {
+          for (item in assetsNode.items) {
+            val assetObj = item as? JsonValue.Obj
+              ?: return ManifestParseResult.Err(VerificationFailureReason.MANIFEST_INVALID, "asset must be object")
+            val pathValue = assetObj.entries["path"] as? JsonValue.Str
+              ?: return ManifestParseResult.Err(VerificationFailureReason.MANIFEST_INVALID, "asset.path is required")
+            if (PathGuard.containsTraversalSegment(pathValue.value)) {
+              return ManifestParseResult.Err(
+                reason = VerificationFailureReason.PATH_UNSAFE,
+                message = "asset path contains traversal",
+              )
+            }
+            val hashValue = assetObj.entries["sha256"] as? JsonValue.Str
+              ?: return ManifestParseResult.Err(VerificationFailureReason.MANIFEST_INVALID, "asset.sha256 is required")
+            val normalized = HexUtils.normalizeSha256Hex(hashValue.value)
+              ?: return ManifestParseResult.Err(VerificationFailureReason.MALFORMED_HASH, "asset.sha256 is malformed")
+            assets.add(AssetEntry(pathValue.value, normalized))
           }
-          val hash = item["sha256"] ?: return null
-          val normalized = HexUtils.normalizeSha256Hex(hash) ?: return null
-          assets.add(AssetEntry(path, normalized))
         }
+        else ->
+          return ManifestParseResult.Err(VerificationFailureReason.MANIFEST_INVALID, "assets must be an array")
       }
 
-      val runtimeVersion = root["runtimeVersion"] as? String
+      val runtimeVersion = (root.entries["runtimeVersion"] as? JsonValue.Str)?.value
 
-      ParsedManifest(
-        runtimeVersion = runtimeVersion,
-        bundleSha256Hex = normalizedBundleHash,
-        assets = assets,
-        canonicalBytes = raw,
+      ManifestParseResult.Ok(
+        ParsedManifest(
+          runtimeVersion = runtimeVersion,
+          bundleSha256Hex = normalizedBundleHash,
+          assets = assets,
+          signingPayloadBytes = CanonicalJson.encode(root),
+        ),
       )
     } catch (_: Exception) {
-      null
+      ManifestParseResult.Err(VerificationFailureReason.MANIFEST_INVALID, "manifest parse failed")
     }
   }
 }
 
-/** Minimal JSON parser for manifest v1 (no third-party dependency). */
-private object MinimalJson {
-  fun parseObject(input: String): Map<String, Any?>? {
+/** Minimal JSON parser producing [JsonValue] (no third-party dependency). */
+private object ManifestJsonParser {
+  fun parseObject(input: String): JsonValue.Obj? {
     val trimmed = input.trim()
     if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
       return null
     }
-    return parseObjectInner(trimmed, 0).first
+    val (obj, next) = parseObjectInner(trimmed, 0) ?: return null
+    if (skipWs(trimmed, next) != trimmed.length) {
+      return null
+    }
+    return obj
   }
 
-  private fun parseObjectInner(
-    input: String,
-    start: Int,
-  ): Pair<Map<String, Any?>, Int> {
+  private fun parseObjectInner(input: String, start: Int): Pair<JsonValue.Obj, Int>? {
     var i = start + 1
-    val result = linkedMapOf<String, Any?>()
-    while (i < input.length) {
+    val entries = linkedMapOf<String, JsonValue>()
+    while (true) {
       i = skipWs(input, i)
       if (i < input.length && input[i] == '}') {
-        return result to i + 1
+        return JsonValue.Obj(entries) to i + 1
       }
-      val (key, afterKey) = parseString(input, i) ?: return result to i
+      val (key, afterKey) = parseString(input, i) ?: return null
       i = skipWs(input, afterKey)
       if (i >= input.length || input[i] != ':') {
-        return result to i
+        return null
       }
       i = skipWs(input, i + 1)
-      val (value, afterValue) = parseValue(input, i) ?: return result to i
-      result[key] = value
+      val (value, afterValue) = parseValue(input, i) ?: return null
+      entries[key] = value
       i = skipWs(input, afterValue)
       if (i < input.length && input[i] == ',') {
         i++
+        continue
       }
     }
-    return result to i
   }
 
-  private fun parseArray(
-    input: String,
-    start: Int,
-  ): Pair<List<Map<String, String>>, Int>? {
+  private fun parseArray(input: String, start: Int): Pair<JsonValue.Arr, Int>? {
     var i = start + 1
-    val items = mutableListOf<Map<String, String>>()
-    while (i < input.length) {
+    val items = mutableListOf<JsonValue>()
+    while (true) {
       i = skipWs(input, i)
       if (i < input.length && input[i] == ']') {
-        return items to i + 1
+        return JsonValue.Arr(items) to i + 1
       }
-      if (input[i] != '{') {
-        return null
-      }
-      val (obj, afterObj) = parseObjectInner(input, i)
-      val stringMap =
-        obj.mapNotNull { (k, v) ->
-          if (v is String) k to v else null
-        }.toMap()
-      items.add(stringMap)
-      i = skipWs(input, afterObj)
+      val (value, afterValue) = parseValue(input, i) ?: return null
+      items.add(value)
+      i = skipWs(input, afterValue)
       if (i < input.length && input[i] == ',') {
         i++
+        continue
       }
     }
-    return null
   }
 
-  private fun parseValue(
-    input: String,
-    start: Int,
-  ): Pair<Any?, Int>? {
+  private fun parseValue(input: String, start: Int): Pair<JsonValue, Int>? {
     var i = skipWs(input, start)
     if (i >= input.length) {
       return null
     }
     return when (input[i]) {
-      '"' -> parseString(input, i)?.let { (s, next) -> s to next }
-      '{' -> {
-        val (obj, next) = parseObjectInner(input, i)
-        obj to next
-      }
-      '[' -> parseArray(input, i)?.let { (arr, next) -> arr to next }
-      'n' -> {
-        if (input.startsWith("null", i)) {
-          null to i + 4
-        } else {
-          null
-        }
-      }
-      else -> {
-        if (input[i].isDigit() || input[i] == '-') {
-          var j = i
-          while (j < input.length && (input[j].isDigit() || input[j] == '-' || input[j] == '.')) {
-            j++
-          }
-          input.substring(i, j) to j
-        } else {
-          null
-        }
-      }
+      '"' -> parseString(input, i)?.let { (s, next) -> JsonValue.Str(s) to next }
+      '{' -> parseObjectInner(input, i)
+      '[' -> parseArray(input, i)
+      't' -> if (input.startsWith("true", i)) JsonValue.Bool(true) to i + 4 else null
+      'f' -> if (input.startsWith("false", i)) JsonValue.Bool(false) to i + 5 else null
+      'n' -> if (input.startsWith("null", i)) JsonValue.Null to i + 4 else null
+      else -> parseNumber(input, i)
     }
   }
 
-  private fun parseString(
-    input: String,
-    start: Int,
-  ): Pair<String, Int>? {
+  private fun parseNumber(input: String, start: Int): Pair<JsonValue.Num, Int>? {
+    var i = start
+    if (input[i] == '-') {
+      i++
+    }
+    if (i >= input.length || !input[i].isDigit()) {
+      return null
+    }
+    val intStart = i
+    while (i < input.length && input[i].isDigit()) {
+      i++
+    }
+    var canonical = input.substring(start, i)
+    if (i < input.length && input[i] == '.') {
+      val fracStart = i
+      i++
+      if (i >= input.length || !input[i].isDigit()) {
+        return null
+      }
+      while (i < input.length && input[i].isDigit()) {
+        i++
+      }
+      canonical = input.substring(start, i)
+    }
+    if (i < input.length && (input[i] == 'e' || input[i] == 'E')) {
+      return null
+    }
+    if (canonical.startsWith("-0") && canonical.length > 1 && canonical[1].isDigit()) {
+      return null
+    }
+    if (!canonical.startsWith("-") && canonical.startsWith("0") && canonical.length > 1 && canonical[1].isDigit()) {
+      return null
+    }
+    return JsonValue.Num(canonical) to i
+  }
+
+  private fun parseString(input: String, start: Int): Pair<String, Int>? {
     if (start >= input.length || input[start] != '"') {
       return null
     }
@@ -190,16 +242,29 @@ private object MinimalJson {
           sb.append(
             when (input[i + 1]) {
               '\\', '"' -> input[i + 1]
+              'b' -> '\b'
+              'f' -> '\u000C'
               'n' -> '\n'
               'r' -> '\r'
               't' -> '\t'
-              else -> input[i + 1]
+              'u' -> {
+                if (i + 5 >= input.length) {
+                  return null
+                }
+                val hex = input.substring(i + 2, i + 6)
+                i += 4
+                hex.toInt(16).toChar()
+              }
+              else -> return null
             },
           )
           i += 2
         }
         '"' -> return sb.toString() to i + 1
         else -> {
+          if (ch.code < 0x20) {
+            return null
+          }
           sb.append(ch)
           i++
         }

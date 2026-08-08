@@ -21,5 +21,7 @@ enum class VerificationFailureReason {
   RUNTIME_MISMATCH,
   /** Path outside allowed root / traversal (E_ZIP_UNSAFE analogue for paths). */
   PATH_UNSAFE,
+  /** manifest.bundle.file is missing, redirects, or not bundle.hbc. */
+  BUNDLE_FILENAME_MISMATCH,
   INTERNAL_ERROR,
 }

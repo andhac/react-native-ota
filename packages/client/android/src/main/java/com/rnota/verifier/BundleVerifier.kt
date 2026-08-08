@@ -121,7 +121,7 @@ class BundleVerifier(
   fun verifySlot(
     slotDirectory: File,
     trustedPublicKeys: List<ByteArray>,
-    allowedRoot: File? = null,
+    allowedRoot: File,
     runningRuntimeVersion: String? = null,
     signatureBase64: String? = null,
   ): VerificationResult {
@@ -140,34 +140,26 @@ class BundleVerifier(
     }
 
     val manifestFile = File(slotDirectory, OtaPaths.MANIFEST_FILE_NAME)
-    if (!manifestFile.isFile) {
-      return VerificationResult.rejected(
-        reason = VerificationFailureReason.MANIFEST_MISSING,
-        message = "manifest.json is missing",
-      )
+    val (parsed, parseFailure) = parseManifest(manifestFile)
+    if (parseFailure != null) {
+      return parseFailure
     }
-
-    val signatureFile = File(slotDirectory, "${OtaPaths.MANIFEST_FILE_NAME}.sig")
-    val parsed =
-      ManifestCodec.parse(manifestFile)
-        ?: return VerificationResult.rejected(
-          reason = VerificationFailureReason.MANIFEST_INVALID,
-          message = "manifest.json is invalid",
-        )
+    val manifest = parsed!!
 
     if (trustedPublicKeys.isEmpty()) {
       return VerificationResult.rejected(
         reason = VerificationFailureReason.SIGNATURE_MISSING,
-        expectedSha256Hex = parsed.bundleSha256Hex,
+        expectedSha256Hex = manifest.bundleSha256Hex,
         message = "No trusted public keys configured",
       )
     }
 
+    val signatureFile = File(slotDirectory, "${OtaPaths.MANIFEST_FILE_NAME}.sig")
     val sigEncoded = signatureBase64 ?: readSignatureSidecar(signatureFile)
     if (sigEncoded.isNullOrBlank()) {
       return VerificationResult.rejected(
         reason = VerificationFailureReason.SIGNATURE_MISSING,
-        expectedSha256Hex = parsed.bundleSha256Hex,
+        expectedSha256Hex = manifest.bundleSha256Hex,
         message = "Detached manifest signature is missing",
       )
     }
@@ -176,25 +168,25 @@ class BundleVerifier(
     if (signatureBytes == null) {
       return VerificationResult.rejected(
         reason = VerificationFailureReason.MALFORMED_SIGNATURE,
-        expectedSha256Hex = parsed.bundleSha256Hex,
+        expectedSha256Hex = manifest.bundleSha256Hex,
         message = "Detached signature is malformed",
       )
     }
 
-    if (!verifySignatureWithAnyKey(parsed.canonicalBytes, signatureBytes, trustedPublicKeys)) {
+    if (!verifySignatureWithAnyKey(manifest.signingPayloadBytes, signatureBytes, trustedPublicKeys)) {
       return VerificationResult.rejected(
         reason = VerificationFailureReason.SIGNATURE_INVALID,
-        expectedSha256Hex = parsed.bundleSha256Hex,
+        expectedSha256Hex = manifest.bundleSha256Hex,
         message = "Ed25519 signature verification failed",
       )
     }
 
     runningRuntimeVersion?.let { running ->
-      val manifestRuntime = parsed.runtimeVersion
+      val manifestRuntime = manifest.runtimeVersion
       if (manifestRuntime != null && manifestRuntime != running) {
         return VerificationResult.rejected(
           reason = VerificationFailureReason.RUNTIME_MISMATCH,
-          expectedSha256Hex = parsed.bundleSha256Hex,
+          expectedSha256Hex = manifest.bundleSha256Hex,
           message = "runtimeVersion mismatch: manifest=$manifestRuntime running=$running",
         )
       }
@@ -205,15 +197,15 @@ class BundleVerifier(
       verify(
         VerificationRequest(
           bundleFile = bundleFile,
-          expectedSha256Hex = parsed.bundleSha256Hex,
-          allowedRoot = allowedRoot ?: slotDirectory.parentFile,
+          expectedSha256Hex = manifest.bundleSha256Hex,
+          allowedRoot = allowedRoot,
         ),
       )
     if (!bundleResult.isVerified) {
       return bundleResult
     }
 
-    for (asset in parsed.assets) {
+    for (asset in manifest.assets) {
       val assetFile = File(slotDirectory, asset.relativePath)
       if (!PathGuard.isUnderAllowedRoot(assetFile, slotDirectory)) {
         return VerificationResult.rejected(
@@ -240,6 +232,18 @@ class BundleVerifier(
     return bundleResult
   }
 
+  private fun parseManifest(manifestFile: File): Pair<ParsedManifest?, VerificationResult?> {
+    return when (val result = ManifestCodec.parse(manifestFile)) {
+      is ManifestParseResult.Ok -> result.manifest to null
+      is ManifestParseResult.Err ->
+        null to
+          VerificationResult.rejected(
+            reason = result.reason,
+            message = result.message,
+          )
+    }
+  }
+
   private fun verifyManifestChain(
     request: VerificationRequest,
     expectedHash: String,
@@ -261,19 +265,20 @@ class BundleVerifier(
     }
 
     val signatureFile = File(manifestFile.parentFile, "${manifestFile.name}.sig")
-    val parsed =
-      ManifestCodec.parse(manifestFile)
-        ?: return VerificationResult.rejected(
-          reason = VerificationFailureReason.MANIFEST_INVALID,
-          expectedSha256Hex = expectedHash,
-          bundleSizeBytes = sizeBytes,
-        )
+    val (parsed, parseFailure) = parseManifest(manifestFile)
+    if (parseFailure != null) {
+      return parseFailure.copy(
+        expectedSha256Hex = expectedHash,
+        bundleSizeBytes = sizeBytes,
+      )
+    }
+    val manifest = parsed!!
 
-    if (!constantTimeHashEquals(expectedHash, parsed.bundleSha256Hex)) {
+    if (!constantTimeHashEquals(expectedHash, manifest.bundleSha256Hex)) {
       return VerificationResult.rejected(
         reason = VerificationFailureReason.HASH_MISMATCH,
         expectedSha256Hex = expectedHash,
-        actualSha256Hex = parsed.bundleSha256Hex,
+        actualSha256Hex = manifest.bundleSha256Hex,
         bundleSizeBytes = sizeBytes,
         message = "Expected hash does not match signed manifest bundle hash",
       )
@@ -305,7 +310,7 @@ class BundleVerifier(
       )
     }
 
-    if (!verifySignatureWithAnyKey(parsed.canonicalBytes, signatureBytes, request.trustedPublicKeys)) {
+    if (!verifySignatureWithAnyKey(manifest.signingPayloadBytes, signatureBytes, request.trustedPublicKeys)) {
       return VerificationResult.rejected(
         reason = VerificationFailureReason.SIGNATURE_INVALID,
         expectedSha256Hex = expectedHash,
@@ -314,7 +319,7 @@ class BundleVerifier(
     }
 
     request.runningRuntimeVersion?.let { running ->
-      val manifestRuntime = parsed.runtimeVersion
+      val manifestRuntime = manifest.runtimeVersion
       if (manifestRuntime != null && manifestRuntime != running) {
         return VerificationResult.rejected(
           reason = VerificationFailureReason.RUNTIME_MISMATCH,
