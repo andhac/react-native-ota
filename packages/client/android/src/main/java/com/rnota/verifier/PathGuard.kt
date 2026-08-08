@@ -1,7 +1,6 @@
 package com.rnota.verifier
 
 import java.io.File
-import java.nio.file.Path
 
 /**
  * Ensures verification targets stay inside an allowed directory (path traversal defense).

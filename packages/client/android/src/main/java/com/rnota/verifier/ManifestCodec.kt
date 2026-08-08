@@ -19,10 +19,7 @@ internal data class AssetEntry(
 )
 
 internal object ManifestCodec {
-  fun parse(
-    manifestFile: File,
-    @Suppress("UNUSED_PARAMETER") signatureFile: File?,
-  ): ParsedManifest? {
+  fun parse(manifestFile: File): ParsedManifest? {
     if (!manifestFile.isFile) {
       return null
     }

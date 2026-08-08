@@ -129,25 +129,6 @@ enum PathGuard {
   }
 }
 
-enum StreamingSha256 {
-  static let chunkSize = 64 * 1024
-
-  static func hashFile(at url: URL) -> Data? {
-    guard let handle = try? FileHandle(forReadingFrom: url) else {
-      return nil
-    }
-    defer { try? handle.close() }
-
-    var hasher = SHA256()
-    while true {
-      let chunk = try? handle.read(upToCount: chunkSize)
-      guard let chunk, !chunk.isEmpty else { break }
-      hasher.update(data: chunk)
-    }
-    return Data(hasher.finalize())
-  }
-}
-
 enum Ed25519Verifier {
   static func verify(message: Data, signature: Data, rawPublicKey: Data) -> Bool {
     guard rawPublicKey.count == 32, signature.count == 64 else { return false }
@@ -182,7 +163,7 @@ struct ParsedManifest: Equatable {
 }
 
 enum ManifestCodec {
-  static func parse(manifestFile: URL, signatureFile: URL?) -> ParsedManifest? {
+  static func parse(manifestFile: URL) -> ParsedManifest? {
     guard FileManager.default.fileExists(atPath: manifestFile.path),
           let raw = try? Data(contentsOf: manifestFile),
           !raw.isEmpty,
@@ -370,7 +351,7 @@ final class BundleVerifier {
     }
 
     let signatureFile = slotDirectory.appendingPathComponent("\(OtaPaths.manifestFileName).sig")
-    guard let parsed = ManifestCodec.parse(manifestFile: manifestFile, signatureFile: signatureFile) else {
+    guard let parsed = ManifestCodec.parse(manifestFile: manifestFile) else {
       return .rejected(reason: .manifestInvalid, message: "manifest.json is invalid")
     }
 
@@ -485,7 +466,7 @@ final class BundleVerifier {
 
     let signatureFile = manifestFile.deletingLastPathComponent()
       .appendingPathComponent("\(manifestFile.lastPathComponent).sig")
-    guard let parsed = ManifestCodec.parse(manifestFile: manifestFile, signatureFile: signatureFile) else {
+    guard let parsed = ManifestCodec.parse(manifestFile: manifestFile) else {
       return .rejected(
         reason: .manifestInvalid,
         expectedSha256Hex: expectedHash,

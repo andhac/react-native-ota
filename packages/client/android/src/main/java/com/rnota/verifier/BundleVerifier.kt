@@ -149,7 +149,7 @@ class BundleVerifier(
 
     val signatureFile = File(slotDirectory, "${OtaPaths.MANIFEST_FILE_NAME}.sig")
     val parsed =
-      ManifestCodec.parse(manifestFile, signatureFile)
+      ManifestCodec.parse(manifestFile)
         ?: return VerificationResult.rejected(
           reason = VerificationFailureReason.MANIFEST_INVALID,
           message = "manifest.json is invalid",
@@ -262,7 +262,7 @@ class BundleVerifier(
 
     val signatureFile = File(manifestFile.parentFile, "${manifestFile.name}.sig")
     val parsed =
-      ManifestCodec.parse(manifestFile, signatureFile)
+      ManifestCodec.parse(manifestFile)
         ?: return VerificationResult.rejected(
           reason = VerificationFailureReason.MANIFEST_INVALID,
           expectedSha256Hex = expectedHash,
